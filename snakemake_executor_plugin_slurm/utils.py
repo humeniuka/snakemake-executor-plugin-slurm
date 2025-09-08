@@ -55,7 +55,7 @@ def set_gres_string(job: JobExecutorInterface) -> str:
     """
     # generic resources (GRES) arguments can be of type
     # "string:int" or "string:string:int"
-    gres_re = re.compile(r"^[a-zA-Z0-9_]+(:[a-zA-Z0-9_]+)?:\d+$")
+    gres_re = re.compile(r"^[a-zA-Z0-9_]+(:[a-zA-Z0-9_]+)?:\d+([a-zA-Z]+)?$")
     # gpu model arguments can be of type "string"
     gpu_model_re = re.compile(r"^[a-zA-Z0-9_]+$")
     # any arguments should not start and end with ticks or
@@ -89,14 +89,14 @@ def set_gres_string(job: JobExecutorInterface) -> str:
                     "GRES format should not be a nested string (start "
                     "and end with ticks or quotation marks). "
                     "Expected format: "
-                    "'<name>:<number>' or '<name>:<type>:<number>' "
-                    "(e.g., 'gpu:1' or 'gpu:tesla:2')"
+                    "'<name>:<number>' or '<name>:<number><unit>' or '<name>:<type>:<number>' "
+                    "(e.g., 'gpu:1' or 'tmpsize:1T' or 'gpu:tesla:2')"
                 )
             else:
                 raise WorkflowError(
                     f"Invalid GRES format: {gres}. Expected format: "
-                    "'<name>:<number>' or '<name>:<type>:<number>' "
-                    "(e.g., 'gpu:1' or 'gpu:tesla:2')"
+                    "'<name>:<number>' or '<name>:<number><unit>' or '<name>:<type>:<number>' "
+                    "(e.g., 'gpu:1' or 'tmpsize:1T' or 'gpu:tesla:2')"
                 )
         return f" --gres={job.resources.gres}"
 
