@@ -136,11 +136,14 @@ common_settings = CommonSettings(
 # Implementation of your executor
 class Executor(RemoteExecutor):
     def __post_init__(self, test_mode: bool = False):
+        self.run_uuid = str(uuid.uuid4())
+        self.logger.info(f"SLURM run ID: {self.run_uuid}")
+        # If running in a SLURM job context, ensure child jobs are cleaned up
+        # after the main jobs exits.
+        self.submit_cleanup_job()
         # run check whether we are running in a SLURM job context
         self.warn_on_jobcontext()
         self.test_mode = test_mode
-        self.run_uuid = str(uuid.uuid4())
-        self.logger.info(f"SLURM run ID: {self.run_uuid}")
         self._fallback_account_arg = None
         self._fallback_partition = None
         self._preemption_warning = False  # no preemption warning has been issued
@@ -174,6 +177,48 @@ class Executor(RemoteExecutor):
             delete_empty_dirs(self.slurm_logdir)
         except (OSError, FileNotFoundError) as e:
             self.logger.warning(f"Could not delete empty directory {path}: {e}")
+
+    def submit_cleanup_job(self):
+        """
+        If snakemake is run in a SLURM job context, it can happen that the
+        snakemake job is cancelled, but the child jobs continue to run in the
+        queue and snakemake effectively loses track of those jobs.
+        To ensure that all child jobs are removed when the main snakemake job
+        is cancelled, a clean-up job is submitted to the queue that waits for
+        the main snakemake job to finish and then kills all remaining child jobs.
+        Child jobs are identified by their name which is equal to the <run_uuid>.
+        """
+        if "SLURM_JOB_ID" in os.environ:
+            # The job id of the main snakemake job
+            main_job_id = os.environ["SLURM_JOB_ID"]
+            # Cancel all child jobs. They all have the same name given by the unique run_uuid.
+            command_string = f"scancel --name {self.run_uuid}"
+            call = (
+                f"sbatch"
+                f" --time=0:10:00"
+                f" --job-name='cleanup-{self.run_uuid}'"
+                f" --output='cleanup-{self.run_uuid}.err'"
+                f" --dependency=afterany:{main_job_id} "
+                f" --wrap='{command_string}'"
+            )
+            self.logger.debug(f"sbatch call: {call}")
+            try:
+                process = subprocess.Popen(
+                    call,
+                    shell=True,
+                    text=True,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                )
+                out, err = process.communicate()
+                if process.returncode != 0:
+                    raise subprocess.CalledProcessError(
+                        process.returncode, call, output=err
+                    )
+            except subprocess.CalledProcessError as e:
+                raise WorkflowError(
+                    f"SLURM sbatch failed. The error message was {e.output}"
+                )
 
     def warn_on_jobcontext(self, done=None):
         if not done:
